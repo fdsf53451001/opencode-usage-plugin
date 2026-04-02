@@ -39,7 +39,7 @@
   "author": "Toby",
   "repository": {
     "type": "git",
-    "url": "https://github.com/user/opencode-usage-plugin"
+    "url": "https://github.com/fdsf53451001/opencode-usage-plugin"
   },
   "scripts": {
     "check": "tsc --noEmit",
