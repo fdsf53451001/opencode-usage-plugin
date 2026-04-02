@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "opencode-usage-plugin",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "OpenCode TUI plugin — shows AI provider usage (GitHub Copilot, Kiro, etc.) with collapsible panels and /usage screen.",
+  "exports": {
+    "./tui": {
+      "import": "./tui.tsx",
+      "config": {
+        "title": "Usage",
+        "interval_ms": 60000,
+        "max_items": 4
+      }
+    }
+  },
+  "files": [
+    "tui.tsx",
+    "scripts/",
+    "README.md",
+    "LICENSE"
+  ],
+  "bin": {
+    "opencode-auth-usage": "./scripts/opencode-auth-usage.mjs"
+  },
+  "engines": {
+    "opencode": ">=1.3.13",
+    "node": ">=22"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "usage",
+    "copilot",
+    "kiro",
+    "tui"
+  ],
+  "license": "MIT",
+  "author": "Toby",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/user/opencode-usage-plugin"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "prepublishOnly": "npm run check"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.3.13",
+    "@opentui/core": "^0.1.95",
+    "@opentui/solid": "^0.1.95",
+    "solid-js": "^1.9.10"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "typescript": "^5.8.2"
+  }
+}
