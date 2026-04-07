@@ -15,6 +15,8 @@ More providers coming soon.
 
 ## What you get
 
+![usage interface](<resources/usage.png>)
+
 - Collapsible usage panel on the home screen
 - Collapsible usage panel in the session sidebar
 - `/usage` command for a full-screen detailed view
@@ -25,9 +27,50 @@ More providers coming soon.
 
 - OpenCode >= 1.3.13
 - Node.js >= 22
-- `curl` available in PATH
 
-## Install
+## Setup
+
+This is a TUI-only plugin.
+
+- Add it to `~/.config/opencode/tui.json`
+- Do not add it to `~/.config/opencode/config.json`
+- Restart OpenCode fully after changing the config
+
+### Load from npm package
+
+If the package is available from npm, add this to `~/.config/opencode/tui.json`:
+
+```json
+{
+  "$schema": "https://opencode.ai/tui.json",
+  "plugin": [
+    "opencode-usage-plugin"
+  ]
+}
+```
+
+You usually do not need to run `npm install` manually for the TUI plugin itself. OpenCode reads the package name from `tui.json` and resolves/installs it through its own plugin system.
+
+Use the package name only. Do not use `opencode-usage-plugin/tui` in `tui.json`.
+
+### Use a local checkout
+
+For local development or if you cloned this repo directly, point `tui.json` at the plugin file:
+
+```json
+{
+  "$schema": "https://opencode.ai/tui.json",
+  "plugin": [
+    "/absolute/path/to/opencode-usage-plugin/tui.tsx"
+  ]
+}
+```
+
+Using an absolute path is the most reliable option for local installs.
+
+## Optional helper command
+
+The plugin works without this. Install it only if you want the `opencode-auth-usage` command on your `PATH`.
 
 ```bash
 npm install -g opencode-usage-plugin
@@ -39,28 +82,25 @@ Or install from GitHub:
 npm install -g github:user/opencode-usage-plugin
 ```
 
-## Setup
+The plugin automatically detects which providers are available and only shows the ones you have configured. No extra setup needed.
 
-Add to `~/.config/opencode/tui.json`:
+### Prefer running connectors in a subprocess?
+
+Most users do not need this. If you want to force the plugin to use `opencode-auth-usage`, configure the same plugin spec with options:
 
 ```json
 {
   "$schema": "https://opencode.ai/tui.json",
   "plugin": [
-    ["opencode-usage-plugin/tui"]
+    [
+      "opencode-usage-plugin",
+      { "command": "opencode-auth-usage" }
+    ]
   ]
 }
 ```
 
-Restart OpenCode. That's it.
-
-The plugin automatically detects which providers are available and only shows the ones you have configured. No extra setup needed.
-
-### Prefer running connectors in a subprocess?
-
-```json
-["opencode-usage-plugin/tui", { "command": "opencode-auth-usage" }]
-```
+If you are loading the plugin from a local checkout, replace `"opencode-usage-plugin"` with the same absolute `tui.tsx` path you used above.
 
 ## Options
 
@@ -77,6 +117,14 @@ Pass as the second element of the plugin tuple:
 | `show_home` | `true` | Show panel on home screen |
 | `show_sidebar` | `true` | Show panel in session sidebar |
 
+## Troubleshooting
+
+- If the panel does not appear, make sure the plugin is only configured in `tui.json`
+- For a local checkout, prefer an absolute path to `tui.tsx`
+- After changing config, fully quit and reopen OpenCode
+- Check the latest log in `~/.local/share/opencode/log/` for `service=tui.plugin` errors
+- If the plugin is loaded, you should see the `Usage` panel and the `/usage` command
+
 ## Environment variables
 
 | Variable | Default | Description |
@@ -84,6 +132,3 @@ Pass as the second element of the plugin tuple:
 | `OPENCODE_AUTH_PATH` | `~/.local/share/opencode/auth.json` | Custom OpenCode auth file path |
 | `OPENCODE_KIRO_DB_PATH` | `~/.config/opencode/kiro.db` | Custom Kiro database path |
 
-## License
-
-MIT
