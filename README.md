@@ -1,4 +1,4 @@
-# @fdsf53451001/opencode-usage-plugin
+# @yuting4281/opencode-usage-plugin
 
 OpenCode TUI plugin that shows your AI provider usage quota directly inside OpenCode.
 
@@ -44,14 +44,14 @@ If the package is available from npm, add this to `~/.config/opencode/tui.json`:
 {
   "$schema": "https://opencode.ai/tui.json",
   "plugin": [
-    "@fdsf53451001/opencode-usage-plugin"
+    "@yuting4281/opencode-usage-plugin"
   ]
 }
 ```
 
 You usually do not need to run `npm install` manually for the TUI plugin itself. OpenCode reads the package name from `tui.json` and resolves/installs it through its own plugin system.
 
-Use the package name only. Do not use `@fdsf53451001/opencode-usage-plugin/tui` in `tui.json`.
+Use the package name only. Do not use `@yuting4281/opencode-usage-plugin/tui` in `tui.json`.
 
 ### Use a local checkout
 
@@ -73,7 +73,7 @@ Using an absolute path is the most reliable option for local installs.
 The plugin works without this. Install it only if you want the `opencode-auth-usage` command on your `PATH`.
 
 ```bash
-npm install -g @fdsf53451001/opencode-usage-plugin
+npm install -g @yuting4281/opencode-usage-plugin
 ```
 
 Or install from GitHub:
@@ -93,14 +93,14 @@ Most users do not need this. If you want to force the plugin to use `opencode-au
   "$schema": "https://opencode.ai/tui.json",
   "plugin": [
     [
-      "@fdsf53451001/opencode-usage-plugin",
+      "@yuting4281/opencode-usage-plugin",
       { "command": "opencode-auth-usage" }
     ]
   ]
 }
 ```
 
-If you are loading the plugin from a local checkout, replace `"@fdsf53451001/opencode-usage-plugin"` with the same absolute `tui.tsx` path you used above.
+If you are loading the plugin from a local checkout, replace `"@yuting4281/opencode-usage-plugin"` with the same absolute `tui.tsx` path you used above.
 
 ## Options
 
