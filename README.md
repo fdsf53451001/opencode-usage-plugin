@@ -1,4 +1,4 @@
-# opencode-usage-plugin
+# @fdsf53451001/opencode-usage-plugin
 
 OpenCode TUI plugin that shows your AI provider usage quota directly inside OpenCode.
 
@@ -44,14 +44,14 @@ If the package is available from npm, add this to `~/.config/opencode/tui.json`:
 {
   "$schema": "https://opencode.ai/tui.json",
   "plugin": [
-    "opencode-usage-plugin"
+    "@fdsf53451001/opencode-usage-plugin"
   ]
 }
 ```
 
 You usually do not need to run `npm install` manually for the TUI plugin itself. OpenCode reads the package name from `tui.json` and resolves/installs it through its own plugin system.
 
-Use the package name only. Do not use `opencode-usage-plugin/tui` in `tui.json`.
+Use the package name only. Do not use `@fdsf53451001/opencode-usage-plugin/tui` in `tui.json`.
 
 ### Use a local checkout
 
@@ -73,13 +73,13 @@ Using an absolute path is the most reliable option for local installs.
 The plugin works without this. Install it only if you want the `opencode-auth-usage` command on your `PATH`.
 
 ```bash
-npm install -g opencode-usage-plugin
+npm install -g @fdsf53451001/opencode-usage-plugin
 ```
 
 Or install from GitHub:
 
 ```bash
-npm install -g github:user/opencode-usage-plugin
+npm install -g github:fdsf53451001/opencode-usage-plugin
 ```
 
 The plugin automatically detects which providers are available and only shows the ones you have configured. No extra setup needed.
@@ -93,14 +93,14 @@ Most users do not need this. If you want to force the plugin to use `opencode-au
   "$schema": "https://opencode.ai/tui.json",
   "plugin": [
     [
-      "opencode-usage-plugin",
+      "@fdsf53451001/opencode-usage-plugin",
       { "command": "opencode-auth-usage" }
     ]
   ]
 }
 ```
 
-If you are loading the plugin from a local checkout, replace `"opencode-usage-plugin"` with the same absolute `tui.tsx` path you used above.
+If you are loading the plugin from a local checkout, replace `"@fdsf53451001/opencode-usage-plugin"` with the same absolute `tui.tsx` path you used above.
 
 ## Options
 
@@ -131,4 +131,3 @@ Pass as the second element of the plugin tuple:
 |----------|---------|-------------|
 | `OPENCODE_AUTH_PATH` | `~/.local/share/opencode/auth.json` | Custom OpenCode auth file path |
 | `OPENCODE_KIRO_DB_PATH` | `~/.config/opencode/kiro.db` | Custom Kiro database path |
-

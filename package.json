@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "name": "opencode-usage-plugin",
+  "name": "@fdsf53451001/opencode-usage-plugin",
   "version": "0.1.0",
   "type": "module",
   "description": "OpenCode TUI plugin — shows AI provider usage (GitHub Copilot, Kiro, etc.) with collapsible panels and /usage screen.",
@@ -49,6 +49,14 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/fdsf53451001/opencode-usage-plugin"
+  },
+  "homepage": "https://github.com/fdsf53451001/opencode-usage-plugin#readme",
+  "bugs": {
+    "url": "https://github.com/fdsf53451001/opencode-usage-plugin/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "scripts": {
     "check": "tsc --noEmit",

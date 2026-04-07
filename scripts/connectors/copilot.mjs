@@ -15,7 +15,7 @@ export async function run(context) {
       Accept: "application/json",
       "Editor-Version": "vscode/1.96.2",
       "X-Github-Api-Version": "2025-04-01",
-      "User-Agent": "opencode-usage-plugin/0.1.0",
+      "User-Agent": "@fdsf53451001/opencode-usage-plugin/0.1.0",
     },
   })
 
