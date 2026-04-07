@@ -20,7 +20,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci --omit=optional
+        run: npm install --omit=optional --no-audit --no-fund
 
       - name: Type check
         run: npm run check
