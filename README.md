@@ -53,6 +53,8 @@ You usually do not need to run `npm install` manually for the TUI plugin itself.
 
 Use the package name only. Do not use `@yuting4281/opencode-usage-plugin/tui` in `tui.json`.
 
+When installed from npm, OpenCode resolves the package's `./tui` export automatically. Users only need the package name in `tui.json`.
+
 ### Use a local checkout
 
 For local development or if you cloned this repo directly, point `tui.json` at the plugin file:
