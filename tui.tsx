@@ -55,7 +55,6 @@ const knownLabels: Record<string, string> = {
   chutes_ai: "Chutes AI",
   claude: "Claude",
   codex: "Codex",
-  gemini_cli: "Gemini CLI",
   github_copilot: "GitHub Copilot",
   github_copilot_add_on: "GitHub Copilot Add-on",
   kimi_for_coding: "Kimi for Coding",
@@ -598,9 +597,84 @@ async function fetchKiroUsage(accessToken: string, account: Record<string, unkno
   return { email, usedCount, limitCount }
 }
 
+
+async function codexConnector(): Promise<ConnectorResult> {
+  let accessToken = ""
+
+  // Try opencode auth.json keys
+  try {
+    const auth = (await readJsonFile(AUTH_PATH)) as Record<string, unknown>
+    for (const key of ["openai", "codex", "chatgpt"]) {
+      const entry = auth[key] as Record<string, unknown> | undefined
+      const token = typeof entry?.access === "string" ? entry.access.trim() : ""
+      if (token) {
+        accessToken = token
+        break
+      }
+    }
+  } catch {
+    // fall through
+  }
+
+  if (!accessToken) return { items: [], warnings: [] }
+
+  // Extract chatgpt_account_id from JWT payload for account-scoped requests
+  // In OpenCode-issued tokens the claim is nested under "https://api.openai.com/auth"
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${accessToken}`,
+    "Content-Type": "application/json",
+  }
+  try {
+    const parts = accessToken.split(".")
+    if (parts.length === 3) {
+      const decoded = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as Record<string, unknown>
+      const authClaims = isRecord(decoded["https://api.openai.com/auth"])
+        ? (decoded["https://api.openai.com/auth"] as Record<string, unknown>)
+        : decoded
+      const accountId = typeof authClaims.chatgpt_account_id === "string" ? authClaims.chatgpt_account_id : undefined
+      if (accountId) headers["ChatGPT-Account-Id"] = accountId
+    }
+  } catch {
+    // JWT parse failed, proceed without account ID
+  }
+
+  const res = await fetch("https://chatgpt.com/backend-api/wham/usage", { headers })
+  if (!res.ok) throw new Error(`Codex quota API ${res.status}`)
+  const payload = (await res.json()) as Record<string, unknown>
+
+  const rateLimit = isRecord(payload.rate_limit) ? (payload.rate_limit as Record<string, unknown>) : undefined
+  const primary = rateLimit && isRecord(rateLimit.primary_window) ? (rateLimit.primary_window as Record<string, unknown>) : undefined
+  const secondary = rateLimit && isRecord(rateLimit.secondary_window) ? (rateLimit.secondary_window as Record<string, unknown>) : undefined
+  const planType = typeof payload.plan_type === "string" ? payload.plan_type : undefined
+
+  if (!primary) return { items: [], warnings: [] }
+
+  const usedPct = typeof primary.used_percent === "number" ? clampPercent(primary.used_percent) : undefined
+  if (usedPct === undefined) return { items: [], warnings: [] }
+
+  const remainPct = 100 - usedPct
+  const resetAfter = typeof primary.reset_after_seconds === "number" ? primary.reset_after_seconds : undefined
+  const weeklyUsed = secondary && typeof secondary.used_percent === "number" ? clampPercent(secondary.used_percent) : undefined
+
+  const detail =
+    [
+      planType ? `plan ${planType}` : undefined,
+      resetAfter !== undefined ? `resets in ${Math.ceil(resetAfter / 60)}m` : undefined,
+      weeklyUsed !== undefined ? `weekly ${weeklyUsed.toFixed(0)}% used` : undefined,
+    ]
+      .filter(Boolean)
+      .join(" | ") || undefined
+
+  return {
+    items: [{ id: "codex", label: "Codex", usagePercentage: usedPct, remainingPercentage: remainPct, detail }],
+    warnings: [],
+  }
+}
+
 const builtinConnectors: Record<string, () => Promise<ConnectorResult>> = {
   copilot: copilotConnector,
   kiro: kiroConnector,
+  codex: codexConnector,
 }
 
 async function loadBuiltinSnapshot(config: PluginConfig): Promise<Snapshot> {
