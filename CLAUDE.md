@@ -30,7 +30,7 @@ This is a **TUI-only OpenCode plugin** (`tui.tsx`) that renders AI provider usag
 
 Each connector is a `.mjs` file that exports `{ name, run({ auth }) }`. Currently:
 - `copilot.mjs` — reads `~/.local/share/opencode/auth.json` (or `$OPENCODE_AUTH_PATH`)
-- `kiro.mjs` — reads `~/.config/opencode/kiro.db` (or `$OPENCODE_KIRO_DB_PATH`), supports token refresh
+- `kiro.mjs` — reads `~/.config/opencode/kiro.db` (or `$OPENCODE_KIRO_DB_PATH`) using Kiro's current access token without refreshing it
 - `shared.mjs` — utilities: `readJson`, `curlJson`, `quotaItem`, `buildSummary`, `defaultPaths`
 
 To add a new provider, create a new `scripts/connectors/<name>.mjs` and register it in `scripts/connectors/index.mjs`.

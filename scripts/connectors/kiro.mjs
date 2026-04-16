@@ -1,3 +1,4 @@
+import { access } from "node:fs/promises"
 import { DatabaseSync } from "node:sqlite"
 
 import {
@@ -11,33 +12,19 @@ import {
   readString,
 } from "./shared.mjs"
 
+// Token refresh is intentionally not performed here.
+// Refreshing from a read-only monitoring tool would consume Kiro's refresh token
+// (AWS OIDC uses rotating single-use refresh tokens) without writing the new token
+// back to the DB, which would break Kiro's own auth. Let Kiro handle its own rotation.
+
 export const name = "kiro"
 
-function decodeRefreshToken(refreshToken) {
-  const parts = refreshToken.split("|")
-  if (parts.length < 2) {
-    return { refreshToken, authMethod: "desktop" }
-  }
-
-  const authMethod = parts[parts.length - 1]
-  if (authMethod === "idc") {
-    return {
-      refreshToken: parts[0],
-      clientId: parts[1],
-      clientSecret: parts[2],
-      authMethod,
-    }
-  }
-
-  return { refreshToken: parts[0], authMethod: "desktop" }
-}
-
 function getKiroAccounts(dbPath) {
-  const db = new DatabaseSync(dbPath, { readonly: true })
+  const db = new DatabaseSync(dbPath, { readOnly: true })
   try {
     return db
       .prepare(
-        "select id, email, auth_method, region, oidc_region, client_id, client_secret, profile_arn, refresh_token, access_token, expires_at, used_count, limit_count, last_sync, is_healthy from accounts",
+        "select id, email, region, profile_arn, access_token, expires_at, used_count, limit_count, last_sync, is_healthy from accounts",
       )
       .all()
   } finally {
@@ -77,66 +64,10 @@ function chooseBestKiroAccounts(rows) {
   return [...groups.values()]
 }
 
-async function refreshKiroAccessToken(account) {
-  const authMethod = account.auth_method
-  const region = account.region
-  const oidcRegion = account.oidc_region || region
-  const decoded = decodeRefreshToken(account.refresh_token)
-  const isIdc = authMethod === "idc"
-
-  const url = isIdc
-    ? `https://oidc.${oidcRegion}.amazonaws.com/token`
-    : `https://prod.${region}.auth.desktop.kiro.dev/refreshToken`
-
-  const body = isIdc
-    ? {
-        refreshToken: decoded.refreshToken,
-        clientId: decoded.clientId ?? account.client_id,
-        clientSecret: decoded.clientSecret ?? account.client_secret,
-        grantType: "refresh_token",
-      }
-    : {
-        refreshToken: decoded.refreshToken,
-      }
-
-  if (isIdc && (!body.clientId || !body.clientSecret)) {
-    throw new Error(`Kiro account ${account.email} is missing IDC client credentials`)
-  }
-
-  const payload = await curlJson(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      "amz-sdk-request": "attempt=1; max=1",
-      "x-amzn-kiro-agent-mode": "vibe",
-      "user-agent": isIdc
-        ? "aws-sdk-js/3.738.0 ua/2.1 os/other lang/js md/browser#unknown_unknown api/sso-oidc#3.738.0 m/E KiroIDE"
-        : "aws-sdk-js/3.0.0 KiroIDE-0.1.0 os/linux lang/js md/nodejs/25.2.1",
-      Connection: "close",
-    },
-    body: JSON.stringify(body),
-  })
-
-  const accessToken = readString(payload?.access_token) ?? readString(payload?.accessToken)
-  if (!accessToken) {
-    throw new Error(`Kiro token refresh returned no access token for ${account.email}`)
-  }
-
-  return accessToken
-}
-
 function isTokenValid(account) {
   const expiresAt = Number(account.expires_at)
   if (!Number.isFinite(expiresAt)) return false
   return Date.now() < expiresAt - 120_000
-}
-
-async function getAccessToken(account) {
-  if (isTokenValid(account) && readString(account.access_token)) {
-    return account.access_token
-  }
-  return refreshKiroAccessToken(account)
 }
 
 async function fetchUsageWithToken(accessToken, account) {
@@ -183,27 +114,24 @@ async function fetchUsageWithToken(accessToken, account) {
 }
 
 async function fetchKiroUsageForAccount(account) {
-  const token = await getAccessToken(account)
-
-  try {
-    return await fetchUsageWithToken(token, account)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    if (message === "INVALID_TOKEN" || message.includes("bearer token")) {
-      const freshToken = await refreshKiroAccessToken(account)
-      return fetchUsageWithToken(freshToken, account)
-    }
-    throw error
-  }
+  const accessToken = readString(account.access_token)
+  if (!accessToken || !isTokenValid(account)) return null
+  return fetchUsageWithToken(accessToken, account)
 }
 
 export async function run() {
   const dbPath = readEnv("OPENCODE_KIRO_DB_PATH") ?? defaultPaths.kiroDb
+  try {
+    await access(dbPath)
+  } catch {
+    return { items: [], warnings: [] }
+  }
+
   let rows
   try {
     rows = getKiroAccounts(dbPath)
-  } catch {
-    return { items: [], warnings: [] }
+  } catch (error) {
+    return { items: [], warnings: [`Kiro DB read failed: ${error instanceof Error ? error.message : String(error)}`] }
   }
 
   const accounts = chooseBestKiroAccounts(rows)
@@ -216,6 +144,7 @@ export async function run() {
   for (const account of accounts) {
     try {
       const usage = await fetchKiroUsageForAccount(account)
+      if (!usage) continue
       if (!Number.isFinite(usage.limitCount) || usage.limitCount <= 0) {
         warnings.push(`Kiro usage limit missing for ${usage.email}`)
         continue

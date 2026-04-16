@@ -2,7 +2,7 @@
 import { useKeyboard } from "@opentui/solid"
 import type { TuiPlugin, TuiPluginApi, TuiPluginModule } from "@opencode-ai/plugin/tui"
 import { exec as execCallback } from "node:child_process"
-import { readFile } from "node:fs/promises"
+import { access, readFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
@@ -373,7 +373,7 @@ function isPlaceholderEmail(email: string): boolean {
   return email.includes("placeholder") && email.endsWith("@awsapps.local")
 }
 
-async function copilotConnector(): Promise<ConnectorResult> {
+async function copilotConnector(_config: PluginConfig): Promise<ConnectorResult> {
   let auth: Record<string, unknown>
   try {
     auth = (await readJsonFile(AUTH_PATH)) as Record<string, unknown>
@@ -420,36 +420,56 @@ async function copilotConnector(): Promise<ConnectorResult> {
 }
 
 type SqliteDBCtor = new (path: string, opts?: unknown) => unknown
+type SqliteDriver = {
+  Database: SqliteDBCtor
+  readOnlyOption: "readOnly" | "readonly"
+}
 
-async function kiroConnector(): Promise<ConnectorResult> {
-  let Database: SqliteDBCtor | undefined
+async function kiroConnector(config: PluginConfig): Promise<ConnectorResult> {
+  let sqlite: SqliteDriver | undefined
   try {
     const mod = await import("bun:sqlite" as string)
-    Database = (mod as unknown as { Database: SqliteDBCtor }).Database ?? (mod as unknown as { default: { Database: SqliteDBCtor } }).default?.Database
+    const Database = (mod as unknown as { Database: SqliteDBCtor }).Database ?? (mod as unknown as { default: { Database: SqliteDBCtor } }).default?.Database
+    if (Database) {
+      sqlite = { Database, readOnlyOption: "readonly" }
+    }
   } catch {
+    // fall through to node:sqlite
+  }
+
+  if (!sqlite) {
     try {
       const mod = await import("node:sqlite" as string)
-      Database = (mod as unknown as { DatabaseSync: unknown }).DatabaseSync as unknown as SqliteDBCtor
+      const Database = (mod as unknown as { DatabaseSync: unknown }).DatabaseSync as SqliteDBCtor | undefined
+      if (Database) {
+        sqlite = { Database, readOnlyOption: "readOnly" }
+      }
     } catch {
       return { items: [], warnings: [] }
     }
   }
 
-  if (!Database) return { items: [], warnings: [] }
+  if (!sqlite) return { items: [], warnings: [] }
+
+  try {
+    await access(KIRO_DB_PATH)
+  } catch {
+    return { items: [], warnings: [] }
+  }
 
   let rows: Array<Record<string, unknown>>
   try {
-    const db = new Database(KIRO_DB_PATH, { readonly: true } as Record<string, unknown>)
+    const db = new sqlite.Database(KIRO_DB_PATH, { [sqlite.readOnlyOption]: true } as Record<string, unknown>)
     try {
       const stmt = (db as unknown as { prepare(sql: string): { all(): Array<Record<string, unknown>> } }).prepare(
-        "select email, auth_method, region, oidc_region, profile_arn, refresh_token, client_id, client_secret, access_token, expires_at, used_count, limit_count, last_sync, is_healthy from accounts",
+        "select email, region, profile_arn, access_token, expires_at, used_count, limit_count, last_sync, is_healthy from accounts",
       )
       rows = stmt.all()
     } finally {
       ;(db as unknown as { close(): void }).close()
     }
-  } catch {
-    return { items: [], warnings: [] }
+  } catch (error) {
+    return { items: [], warnings: [`Kiro DB read failed: ${error instanceof Error ? error.message : String(error)}`] }
   }
 
   const healthy = rows.filter((r) => Number(r.is_healthy) === 1 && !isPlaceholderEmail(String(r.email ?? "")))
@@ -471,17 +491,14 @@ async function kiroConnector(): Promise<ConnectorResult> {
   const warnings: string[] = []
 
   for (const account of accounts) {
+    const accessToken = typeof account.access_token === "string" ? account.access_token.trim() : ""
+    const expiresAt = Number(account.expires_at)
+    const isExpired = !Number.isFinite(expiresAt) || Date.now() >= expiresAt - 120_000
+
+    if (!accessToken || isExpired) continue
+
     try {
-      // Try exisaccess_token first, refresh if expired
-      let accessToken = typeof account.access_token === "string" ? account.access_token : ""
-      const expiresAt = Number(account.expires_at)
-      const isExpired = !Number.isFinite(expiresAt) || Date.now() >= expiresAt - 120_000
-
-      if (isExpired || !accessToken) {
-        accessToken = await refreshKiroToken(account)
-      }
-
-      const usage = await fetchKiroUsage(accessToken, account)
+      const usage = await fetchKiroUsage(accessToken, account, config.timeoutMs)
       if (usage.limitCount <= 0) { warnings.push(`Kiro limit missing for ${account.email}`); continue }
 
       const remainingCount = Math.max(0, usage.limitCount - usage.usedCount)
@@ -492,67 +509,15 @@ async function kiroConnector(): Promise<ConnectorResult> {
 
       items.push({ id: `kiro:${usage.email}`, label, usagePercentage: clampPercent(usedPct), remainingPercentage: clampPercent(remainPct), detail })
     } catch (error) {
-      // If direct token failed, try refresh
-      try {
-        const freshToken = await refreshKiroToken(account)
-        const usage = await fetchKiroUsage(freshToken, account)
-        if (usage.limitCount <= 0) { warnings.push(`Kiro limit missing for ${account.email}`); continue }
-        const remainingCount = Math.max(0, usage.limitCount - usage.usedCount)
-        const usedPct = (usage.usedCount / usage.limitCount) * 100
-        const remainPct = (remainingCount / usage.limitCount) * 100
-        const label = accounts.length > 1 ? `Kiro (${usage.email})` : "Kiro"
-        const detail = [`${remainingCount}/${usage.limitCount} remaining`, account.profile_arn ? "IAM Identity Center" : undefined].filter(Boolean).join(" | ")
-        items.push({ id: `kiro:${usage.email}`, label, usagePercentage: clampPercent(usedPct), remainingPercentage: clampPercent(remainPct), detail })
-      } catch (retryError) {
-        warnings.push(`Kiro ${account.email}: ${retryError instanceof Error ? retryError.message : String(retryError)}`)
-      }
+      warnings.push(`Kiro ${account.email}: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
   return { items, warnings }
 }
 
-async function refreshKiroToken(account: Record<string, unknown>): Promise<string> {
-  const authMethod = String(account.auth_method ?? "desktop")
-  const region = String(account.region ?? "us-east-1")
-  const oidcRegion = String(account.oidc_region || region)
-  const refreshToken = String(account.refresh_token ?? "")
-  const clientId = String(account.client_id ?? "")
-  const clientSecret = String(account.client_secret ?? "")
-  const isIdc = authMethod === "idc"
 
-  const url = isIdc
-    ? `https://oidc.${oidcRegion}.amazonaws.com/token`
-    : `https://prod.${region}.auth.desktop.kiro.dev/refreshToken`
-
-  const body = isIdc
-    ? { refreshToken, clientId, clientSecret, grantType: "refresh_token" }
-    : { refreshToken }
-
-  if (isIdc && (!clientId || !clientSecret)) {
-    throw new Error(`Missing IDC credentials for ${account.email}`)
-  }
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      "amz-sdk-request": "attempt=1; max=1",
-      "x-amzn-kiro-agent-mode": "vibe",
-      Connection: "close",
-    },
-    body: JSON.stringify(body),
-  })
-
-  if (!res.ok) throw new Error(`Kiro token refresh failed: ${res.status}`)
-  const data = (await res.json()) as Record<string, unknown>
-  const token = (typeof data.access_token === "string" ? data.access_token : typeof data.accessToken === "string" ? data.accessToken : "").trim()
-  if (!token) throw new Error(`No access token returned for ${account.email}`)
-  return token
-}
-
-async function fetchKiroUsage(accessToken: string, account: Record<string, unknown>): Promise<{ email: string; usedCount: number; limitCount: number }> {
+async function fetchKiroUsage(accessToken: string, account: Record<string, unknown>, timeoutMs: number): Promise<{ email: string; usedCount: number; limitCount: number }> {
   const region = String(account.region ?? "us-east-1")
   const profileArn = typeof account.profile_arn === "string" ? account.profile_arn : ""
   const url = new URL(`https://q.${region}.amazonaws.com/getUsageLimits`)
@@ -561,17 +526,30 @@ async function fetchKiroUsage(accessToken: string, account: Record<string, unkno
   url.searchParams.set("resourceType", "AGENTIC_REQUEST")
   if (profileArn) url.searchParams.set("profileArn", profileArn)
 
-  const res = await fetch(url.toString(), {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-      "x-amzn-kiro-agent-mode": "vibe",
-      "amz-sdk-request": "attempt=1; max=1",
-    },
-  })
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  let data: Record<string, unknown>
+  try {
+    const res = await fetch(url.toString(), {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        "x-amzn-kiro-agent-mode": "vibe",
+        "amz-sdk-request": "attempt=1; max=1",
+      },
+      signal: controller.signal,
+    })
 
-  if (!res.ok) throw new Error(`Kiro usage API ${res.status}`)
-  const data = (await res.json()) as Record<string, unknown>
+    if (!res.ok) throw new Error(`Kiro usage API ${res.status}`)
+    data = (await res.json()) as Record<string, unknown>
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`Kiro usage API timed out after ${timeoutMs}ms`)
+    }
+    throw error
+  } finally {
+    clearTimeout(timeoutId)
+  }
 
   if (typeof data.message === "string" && data.message.includes("bearer token")) {
     throw new Error("INVALID_TOKEN")
@@ -598,7 +576,7 @@ async function fetchKiroUsage(accessToken: string, account: Record<string, unkno
 }
 
 
-async function codexConnector(): Promise<ConnectorResult> {
+async function codexConnector(_config: PluginConfig): Promise<ConnectorResult> {
   let accessToken = ""
 
   // Try opencode auth.json keys
@@ -671,7 +649,7 @@ async function codexConnector(): Promise<ConnectorResult> {
   }
 }
 
-const builtinConnectors: Record<string, () => Promise<ConnectorResult>> = {
+const builtinConnectors: Record<string, (config: PluginConfig) => Promise<ConnectorResult>> = {
   copilot: copilotConnector,
   kiro: kiroConnector,
   codex: codexConnector,
@@ -683,7 +661,7 @@ async function loadBuiltinSnapshot(config: PluginConfig): Promise<Snapshot> {
 
   for (const [name, connector] of Object.entries(builtinConnectors)) {
     try {
-      const result = await connector()
+      const result = await connector(config)
       for (const item of result.items) {
         allItems.push({
           id: item.id,

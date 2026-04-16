@@ -9,7 +9,7 @@ Auto-detects available providers. Auto-refreshes every 60 seconds.
 | Provider | Auth source | What it shows |
 |----------|-------------|---------------|
 | GitHub Copilot | `~/.local/share/opencode/auth.json` | Premium interactions remaining %, plan type, reset date |
-| Kiro | `~/.config/opencode/kiro.db` | Usage / limit per account, auto token refresh |
+| Kiro | `~/.config/opencode/kiro.db` | Usage / limit per account |
 | Codex (OpenAI) | `~/.local/share/opencode/auth.json` | Weekly usage %, plan type, reset countdown |
 
 ## What you get
