@@ -11,6 +11,9 @@ Auto-detects available providers. Auto-refreshes every 60 seconds.
 | GitHub Copilot | `~/.local/share/opencode/auth.json` | Premium interactions remaining %, plan type, reset date |
 | Kiro | `~/.config/opencode/kiro.db` | Usage / limit per account |
 | Codex (OpenAI) | `~/.local/share/opencode/auth.json` | Weekly usage %, plan type, reset countdown |
+| NVIDIA (build.nvidia.com) | `~/.local/share/opencode/auth.json` + `opencode.db` | Local estimate: requests made from this machine vs. free credit limit, recent requests/min |
+
+> **Note on NVIDIA:** NVIDIA offers no usage API, so this row is a *local estimate* — it counts requests made through OpenCode on this machine against the free tier of 1,000 credits (adjustable via `nvidia_credit_limit`).
 
 ## What you get
 
@@ -117,6 +120,7 @@ Pass as the second element of the plugin tuple:
 | `title` | `Usage` | Panel title |
 | `show_home` | `true` | Show panel on home screen |
 | `show_sidebar` | `true` | Show panel in session sidebar |
+| `nvidia_credit_limit` | `1000` | Assumed NVIDIA free credit total for the local usage estimate |
 
 ## Troubleshooting
 
@@ -125,6 +129,7 @@ Pass as the second element of the plugin tuple:
 - After changing config, fully quit and reopen OpenCode
 - Check the latest log in `~/.local/share/opencode/log/` for `service=tui.plugin` errors
 - If the plugin is loaded, you should see the `Usage` panel and the `/usage` command
+- If the NVIDIA row is missing, make sure `auth.json` has an `nvidia` entry (set up via `opencode auth login`)
 
 ## Environment variables
 
@@ -132,3 +137,5 @@ Pass as the second element of the plugin tuple:
 |----------|---------|-------------|
 | `OPENCODE_AUTH_PATH` | `~/.local/share/opencode/auth.json` | Custom OpenCode auth file path |
 | `OPENCODE_KIRO_DB_PATH` | `~/.config/opencode/kiro.db` | Custom Kiro database path |
+| `OPENCODE_DB_PATH` | `~/.local/share/opencode/opencode.db` | Custom OpenCode database path (CLI, used for the NVIDIA estimate) |
+| `OPENCODE_NVIDIA_CREDIT_LIMIT` | `1000` | Assumed NVIDIA free credit total (CLI equivalent of `nvidia_credit_limit`) |

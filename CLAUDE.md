@@ -22,7 +22,7 @@ This is a **TUI-only OpenCode plugin** (`tui.tsx`) that renders AI provider usag
 
 1. **Plugin entrypoint** — `tui.tsx` is the single plugin file. OpenCode loads it via the `./tui` export in `package.json`.
 2. **Data fetching** — two strategies:
-   - *Built-in (default)*: connectors in `scripts/connectors/` run in-process inside `tui.tsx` using dynamic `import()`.
+   - *Built-in (default)*: `tui.tsx` has its own inline connector implementations (`builtinConnectors` map). These are **duplicates** of the `scripts/connectors/*.mjs` logic, not imports of them — the `.mjs` files serve the CLI path only.
    - *External command*: if the user passes `{ "command": "opencode-auth-usage" }` in options, the plugin shells out to that command instead.
 3. **CLI binary** — `scripts/opencode-auth-usage.mjs` is the `bin` entry. It iterates over all connectors in `scripts/connectors/index.mjs` and prints a JSON snapshot to stdout.
 
@@ -31,9 +31,15 @@ This is a **TUI-only OpenCode plugin** (`tui.tsx`) that renders AI provider usag
 Each connector is a `.mjs` file that exports `{ name, run({ auth }) }`. Currently:
 - `copilot.mjs` — reads `~/.local/share/opencode/auth.json` (or `$OPENCODE_AUTH_PATH`)
 - `kiro.mjs` — reads `~/.config/opencode/kiro.db` (or `$OPENCODE_KIRO_DB_PATH`) using Kiro's current access token without refreshing it
+- `codex.mjs` — reads the OpenAI/Codex OAuth token from `auth.json`, extracts `chatgpt_account_id` from the JWT, queries the ChatGPT usage endpoint
+- `nvidia.mjs` — local estimate only (NVIDIA has no usage API): counts `step-start` parts for `providerID: "nvidia"` in `~/.local/share/opencode/opencode.db` (or `$OPENCODE_DB_PATH`) against a credit limit (default 1000, `$OPENCODE_NVIDIA_CREDIT_LIMIT` / `nvidia_credit_limit` option)
 - `shared.mjs` — utilities: `readJson`, `curlJson`, `quotaItem`, `buildSummary`, `defaultPaths`
 
-To add a new provider, create a new `scripts/connectors/<name>.mjs` and register it in `scripts/connectors/index.mjs`.
+To add a new provider, implement it **twice**:
+1. Create `scripts/connectors/<name>.mjs` and register it in `scripts/connectors/index.mjs` (CLI path)
+2. Add a matching `<name>Connector()` function in `tui.tsx` and register it in the `builtinConnectors` map (built-in path)
+
+Connectors that need SQLite in `tui.tsx` should use the `loadSqliteDriver()` helper (`bun:sqlite` with `node:sqlite` fallback); the `.mjs` side uses `node:sqlite`'s `DatabaseSync` directly, always with `{ readOnly: true }`.
 
 ### Core types in `tui.tsx`
 

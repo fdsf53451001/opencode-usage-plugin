@@ -10,6 +10,7 @@ const execFile = promisify(execFileCallback)
 export const defaultPaths = {
   auth: path.join(os.homedir(), ".local", "share", "opencode", "auth.json"),
   kiroDb: path.join(os.homedir(), ".config", "opencode", "kiro.db"),
+  opencodeDb: path.join(os.homedir(), ".local", "share", "opencode", "opencode.db"),
 }
 
 export function readEnv(name) {

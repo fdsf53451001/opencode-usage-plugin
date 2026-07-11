@@ -23,6 +23,7 @@ type PluginConfig = {
   showHome: boolean
   showSidebar: boolean
   cacheKey: string
+  nvidiaCreditLimit: number
 }
 
 type UsageItem = {
@@ -340,6 +341,7 @@ function readConfig(options: Record<string, unknown> | undefined): PluginConfig 
   const interval = readNumber(options?.interval_ms)
   const timeout = readNumber(options?.timeout_ms)
   const maxItems = readNumber(options?.max_items)
+  const nvidiaCreditLimit = readNumber(options?.nvidia_credit_limit)
 
   return {
     title: readString(options?.title) ?? "Usage",
@@ -351,6 +353,7 @@ function readConfig(options: Record<string, unknown> | undefined): PluginConfig 
     showHome: readBoolean(options?.show_home, true),
     showSidebar: readBoolean(options?.show_sidebar, true),
     cacheKey: readString(options?.cache_key) ?? `${id}.snapshot`,
+    nvidiaCreditLimit: Math.max(1, Math.round(nvidiaCreditLimit ?? 1000)),
   }
 }
 
@@ -358,6 +361,7 @@ function readConfig(options: Record<string, unknown> | undefined): PluginConfig 
 
 const AUTH_PATH = join(homedir(), ".local", "share", "opencode", "auth.json")
 const KIRO_DB_PATH = join(homedir(), ".config", "opencode", "kiro.db")
+const OPENCODE_DB_PATH = join(homedir(), ".local", "share", "opencode", "opencode.db")
 
 type ConnectorResult = {
   items: { id: string; label: string; usagePercentage: number; remainingPercentage: number; detail?: string }[]
@@ -425,30 +429,32 @@ type SqliteDriver = {
   readOnlyOption: "readOnly" | "readonly"
 }
 
-async function kiroConnector(config: PluginConfig): Promise<ConnectorResult> {
-  let sqlite: SqliteDriver | undefined
+async function loadSqliteDriver(): Promise<SqliteDriver | undefined> {
   try {
     const mod = await import("bun:sqlite" as string)
     const Database = (mod as unknown as { Database: SqliteDBCtor }).Database ?? (mod as unknown as { default: { Database: SqliteDBCtor } }).default?.Database
     if (Database) {
-      sqlite = { Database, readOnlyOption: "readonly" }
+      return { Database, readOnlyOption: "readonly" }
     }
   } catch {
     // fall through to node:sqlite
   }
 
-  if (!sqlite) {
-    try {
-      const mod = await import("node:sqlite" as string)
-      const Database = (mod as unknown as { DatabaseSync: unknown }).DatabaseSync as SqliteDBCtor | undefined
-      if (Database) {
-        sqlite = { Database, readOnlyOption: "readOnly" }
-      }
-    } catch {
-      return { items: [], warnings: [] }
+  try {
+    const mod = await import("node:sqlite" as string)
+    const Database = (mod as unknown as { DatabaseSync: unknown }).DatabaseSync as SqliteDBCtor | undefined
+    if (Database) {
+      return { Database, readOnlyOption: "readOnly" }
     }
+  } catch {
+    // no sqlite driver available
   }
 
+  return undefined
+}
+
+async function kiroConnector(config: PluginConfig): Promise<ConnectorResult> {
+  const sqlite = await loadSqliteDriver()
   if (!sqlite) return { items: [], warnings: [] }
 
   try {
@@ -649,10 +655,71 @@ async function codexConnector(_config: PluginConfig): Promise<ConnectorResult> {
   }
 }
 
+// NVIDIA removed the credits system from build.nvidia.com and exposes no usage
+// API, so usage is estimated locally by counting this machine's OpenCode
+// requests to the nvidia provider in opencode.db. One `step-start` part = one
+// API request (matching the old 1 credit = 1 request model).
+async function nvidiaConnector(config: PluginConfig): Promise<ConnectorResult> {
+  let auth: Record<string, unknown>
+  try {
+    auth = (await readJsonFile(AUTH_PATH)) as Record<string, unknown>
+  } catch {
+    return { items: [], warnings: [] }
+  }
+
+  const entry = auth.nvidia as Record<string, unknown> | undefined
+  const key = typeof entry?.key === "string" ? entry.key.trim() : ""
+  if (!key) {
+    return { items: [], warnings: [] }
+  }
+
+  const sqlite = await loadSqliteDriver()
+  if (!sqlite) return { items: [], warnings: [] }
+
+  try {
+    await access(OPENCODE_DB_PATH)
+  } catch {
+    return { items: [], warnings: [] }
+  }
+
+  const countSql = `
+    select count(*) as total from part p
+    join message m on p.message_id = m.id
+    where m.data like '%"providerID":"nvidia"%'
+      and json_extract(m.data, '$.providerID') = 'nvidia'
+      and json_extract(p.data, '$.type') = 'step-start'
+  `
+
+  let total: number
+  let lastMinute: number
+  try {
+    const db = new sqlite.Database(OPENCODE_DB_PATH, { [sqlite.readOnlyOption]: true } as Record<string, unknown>)
+    try {
+      const prepared = db as unknown as { prepare(sql: string): { get(...params: unknown[]): Record<string, unknown> | undefined } }
+      total = Number(prepared.prepare(countSql).get()?.total) || 0
+      lastMinute = Number(prepared.prepare(`${countSql} and p.time_created >= ?`).get(Date.now() - 60_000)?.total) || 0
+    } finally {
+      ;(db as unknown as { close(): void }).close()
+    }
+  } catch (error) {
+    return { items: [], warnings: [`NVIDIA DB read failed: ${error instanceof Error ? error.message : String(error)}`] }
+  }
+
+  const limit = config.nvidiaCreditLimit
+  const usedPct = (total / limit) * 100
+  const detail = `${total}/${limit} est. credits | ${lastMinute}/40 rpm`
+
+  return {
+    items: [{ id: "nvidia", label: "NVIDIA", usagePercentage: clampPercent(usedPct), remainingPercentage: clampPercent(100 - usedPct), detail }],
+    warnings: [],
+  }
+}
+
 const builtinConnectors: Record<string, (config: PluginConfig) => Promise<ConnectorResult>> = {
   copilot: copilotConnector,
   kiro: kiroConnector,
   codex: codexConnector,
+  nvidia: nvidiaConnector,
 }
 
 async function loadBuiltinSnapshot(config: PluginConfig): Promise<Snapshot> {
