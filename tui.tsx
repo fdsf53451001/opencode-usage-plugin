@@ -892,10 +892,17 @@ function SummaryPanel(props: {
 
 function UsageScreen(props: { api: TuiPluginApi; config: PluginConfig; state: () => FetchState; onRefresh: () => void }) {
   const theme = () => props.api.theme.current
-  const keys = props.api.keybind.create({
-    close: "escape",
-    refresh: "r",
-  })
+  // api.keybind was removed from the TUI plugin API in OpenCode 1.17.x;
+  // fall back to plain key-name matching so /usage works on both old and new versions.
+  const keyDefaults: Record<string, string> = { close: "escape", refresh: "r" }
+  const keybindApi = (props.api as { keybind?: TuiPluginApi["keybind"] }).keybind
+  const keys =
+    typeof keybindApi?.create === "function"
+      ? keybindApi.create(keyDefaults)
+      : {
+          match: (key: string, evt: { name: string }) => evt.name === keyDefaults[key],
+          print: (key: string) => keyDefaults[key] ?? key,
+        }
   const snapshot = createMemo(() => props.state().snapshot)
   const quotas = createMemo(() => quotaItems(snapshot(), Number.MAX_SAFE_INTEGER))
   const costs = createMemo(() => costItems(snapshot()))
