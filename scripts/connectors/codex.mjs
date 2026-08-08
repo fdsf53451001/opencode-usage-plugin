@@ -59,14 +59,22 @@ export async function run(context) {
 
   const detail = [
     planType ? `plan ${planType}` : undefined,
-    resetAfter !== undefined ? `resets in ${Math.ceil(resetAfter / 60)}m` : undefined,
     weeklyUsed !== undefined ? `weekly ${weeklyUsed.toFixed(0)}% used` : undefined,
   ]
     .filter(Boolean)
     .join(" | ")
 
   return {
-    items: [quotaItem({ id: "codex", label: "Codex", used: usedPct, remaining: remainPct, detail: detail || undefined })],
+    items: [
+      quotaItem({
+        id: "codex",
+        label: "Codex",
+        used: usedPct,
+        remaining: remainPct,
+        detail: detail || undefined,
+        resetAt: resetAfter !== undefined ? Date.now() + resetAfter * 1000 : undefined,
+      }),
+    ],
     warnings: [],
   }
 }

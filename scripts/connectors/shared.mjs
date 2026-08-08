@@ -39,14 +39,31 @@ export function readNumber(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined
 }
 
-export function quotaItem({ id, label, used, remaining, detail }) {
+export function quotaItem({ id, label, used, remaining, detail, resetAt }) {
   return {
     id,
     label,
     usagePercentage: clampPercent(used),
     remainingPercentage: clampPercent(remaining),
     detail,
+    resetAt,
   }
+}
+
+// Turns "YYYY-MM-DD" into local midnight (Date's own parser would read it as UTC)
+// and passes through anything else Date understands. Returns epoch millis.
+export function parseResetAt(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value < 1e12 ? value * 1000 : value
+  }
+  const text = readString(value)
+  if (!text) return undefined
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text)
+  if (dateOnly) {
+    return new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3])).getTime()
+  }
+  const parsed = Date.parse(text)
+  return Number.isFinite(parsed) ? parsed : undefined
 }
 
 export function buildSummary(items) {

@@ -11,9 +11,9 @@ Auto-detects available providers. Auto-refreshes every 60 seconds.
 | GitHub Copilot | `~/.local/share/opencode/auth.json` | Premium interactions remaining %, plan type, reset date |
 | Kiro | `~/.config/opencode/kiro.db` | Usage / limit per account |
 | Codex (OpenAI) | `~/.local/share/opencode/auth.json` | Weekly usage %, plan type, reset countdown |
-| NVIDIA (build.nvidia.com) | `~/.local/share/opencode/auth.json` + `opencode.db` | Local estimate: requests made from this machine vs. free credit limit, recent requests/min |
+| NVIDIA (build.nvidia.com) | `~/.local/share/opencode/auth.json` + `opencode.db` | Local estimate: requests made today from this machine vs. an assumed daily limit, recent requests/min |
 
-> **Note on NVIDIA:** NVIDIA offers no usage API, so this row is a *local estimate* — it counts requests made through OpenCode on this machine against the free tier of 1,000 credits (adjustable via `nvidia_credit_limit`).
+> **Note on NVIDIA:** NVIDIA offers no usage API, so this row is a *local estimate* — it counts today's requests (local midnight reset) made through OpenCode on this machine against an assumed daily limit of 1,000 (adjustable via `nvidia_daily_limit`).
 
 ## What you get
 
@@ -24,6 +24,7 @@ Auto-detects available providers. Auto-refreshes every 60 seconds.
 - `/usage` command for a full-screen detailed view
 - `/usage-refresh` command to manually refresh
 - Color-coded progress bars (green → yellow → red as quota decreases)
+- Quota reset time on the same row as the progress bar, shown as local `MM/DD HH:mm` (providers that expose no reset time simply omit it)
 
 ## Requirements
 
@@ -120,7 +121,7 @@ Pass as the second element of the plugin tuple:
 | `title` | `Usage` | Panel title |
 | `show_home` | `true` | Show panel on home screen |
 | `show_sidebar` | `true` | Show panel in session sidebar |
-| `nvidia_credit_limit` | `1000` | Assumed NVIDIA free credit total for the local usage estimate |
+| `nvidia_daily_limit` | `1000` | Assumed NVIDIA daily request limit for the local usage estimate |
 
 ## Troubleshooting
 
@@ -138,4 +139,4 @@ Pass as the second element of the plugin tuple:
 | `OPENCODE_AUTH_PATH` | `~/.local/share/opencode/auth.json` | Custom OpenCode auth file path |
 | `OPENCODE_KIRO_DB_PATH` | `~/.config/opencode/kiro.db` | Custom Kiro database path |
 | `OPENCODE_DB_PATH` | `~/.local/share/opencode/opencode.db` | Custom OpenCode database path (CLI, used for the NVIDIA estimate) |
-| `OPENCODE_NVIDIA_CREDIT_LIMIT` | `1000` | Assumed NVIDIA free credit total (CLI equivalent of `nvidia_credit_limit`) |
+| `OPENCODE_NVIDIA_DAILY_LIMIT` | `1000` | Assumed NVIDIA daily request limit (CLI equivalent of `nvidia_daily_limit`) |

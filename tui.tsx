@@ -23,7 +23,7 @@ type PluginConfig = {
   showHome: boolean
   showSidebar: boolean
   cacheKey: string
-  nvidiaCreditLimit: number
+  nvidiaDailyLimit: number
 }
 
 type UsageItem = {
@@ -34,6 +34,12 @@ type UsageItem = {
   remaining?: number
   detail?: string
   cost?: number
+  rpmUsed?: number
+  rpmLimit?: number
+  countLabel?: string
+  usedCount?: number
+  limitCount?: number
+  resetAt?: number
 }
 
 type Snapshot = {
@@ -145,6 +151,30 @@ function formatUpdatedAt(timestamp: number | undefined): string {
   })
 }
 
+// Reset timestamps render as local "MM/DD HH:mm" so a row stays on one line.
+function formatResetAt(timestamp: number | undefined): string | undefined {
+  if (timestamp === undefined || !Number.isFinite(timestamp)) return undefined
+  const date = new Date(timestamp)
+  const pad = (value: number) => String(value).padStart(2, "0")
+  return `${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+// Accepts epoch millis, epoch seconds, or a date string ("2026-09-01" is read as
+// local midnight rather than UTC, which Date's own parser would do).
+function parseResetAt(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value < 1e12 ? value * 1000 : value
+  }
+  const text = readString(value)
+  if (!text) return undefined
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text)
+  if (dateOnly) {
+    return new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3])).getTime()
+  }
+  const parsed = Date.parse(text)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
 function toErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message) return error.message
   if (typeof error === "string" && error.trim()) return error.trim()
@@ -221,6 +251,12 @@ function normalizeNative(raw: Record<string, unknown>, config: PluginConfig): Sn
       used,
       remaining,
       detail,
+      rpmUsed: readNumber(entry.rpmUsed),
+      rpmLimit: readNumber(entry.rpmLimit),
+      countLabel: readString(entry.countLabel),
+      usedCount: readNumber(entry.usedCount),
+      limitCount: readNumber(entry.limitCount),
+      resetAt: parseResetAt(entry.resetAt ?? entry.reset_at),
     })
   })
 
@@ -341,7 +377,7 @@ function readConfig(options: Record<string, unknown> | undefined): PluginConfig 
   const interval = readNumber(options?.interval_ms)
   const timeout = readNumber(options?.timeout_ms)
   const maxItems = readNumber(options?.max_items)
-  const nvidiaCreditLimit = readNumber(options?.nvidia_credit_limit)
+  const nvidiaDailyLimit = readNumber(options?.nvidia_daily_limit)
 
   return {
     title: readString(options?.title) ?? "Usage",
@@ -353,7 +389,7 @@ function readConfig(options: Record<string, unknown> | undefined): PluginConfig 
     showHome: readBoolean(options?.show_home, true),
     showSidebar: readBoolean(options?.show_sidebar, true),
     cacheKey: readString(options?.cache_key) ?? `${id}.snapshot`,
-    nvidiaCreditLimit: Math.max(1, Math.round(nvidiaCreditLimit ?? 1000)),
+    nvidiaDailyLimit: Math.max(1, Math.round(nvidiaDailyLimit ?? 1000)),
   }
 }
 
@@ -364,7 +400,19 @@ const KIRO_DB_PATH = join(homedir(), ".config", "opencode", "kiro.db")
 const OPENCODE_DB_PATH = join(homedir(), ".local", "share", "opencode", "opencode.db")
 
 type ConnectorResult = {
-  items: { id: string; label: string; usagePercentage: number; remainingPercentage: number; detail?: string }[]
+  items: {
+    id: string
+    label: string
+    usagePercentage: number
+    remainingPercentage: number
+    detail?: string
+    rpmUsed?: number
+    rpmLimit?: number
+    countLabel?: string
+    usedCount?: number
+    limitCount?: number
+    resetAt?: number
+  }[]
   warnings: string[]
 }
 
@@ -414,11 +462,11 @@ async function copilotConnector(_config: PluginConfig): Promise<ConnectorResult>
   const remainPct = (clamped / entitlement) * 100
   const usedPct = 100 - remainPct
   const plan = typeof payload.copilot_plan === "string" ? payload.copilot_plan : "unknown"
-  const resetDate = typeof payload.quota_reset_date === "string" ? payload.quota_reset_date : undefined
-  const detail = [`${Math.round(clamped)}/${Math.round(entitlement)} left`, `plan ${plan}`, resetDate ? `resets ${resetDate}` : undefined].filter(Boolean).join(" | ")
+  const resetAt = parseResetAt(payload.quota_reset_date)
+  const detail = [`${Math.round(clamped)}/${Math.round(entitlement)} left`, `plan ${plan}`].join(" | ")
 
   return {
-    items: [{ id: "github-copilot", label: "GitHub Copilot", usagePercentage: clampPercent(usedPct), remainingPercentage: clampPercent(remainPct), detail }],
+    items: [{ id: "github-copilot", label: "GitHub Copilot", usagePercentage: clampPercent(usedPct), remainingPercentage: clampPercent(remainPct), detail, resetAt }],
     warnings: [],
   }
 }
@@ -643,22 +691,30 @@ async function codexConnector(_config: PluginConfig): Promise<ConnectorResult> {
   const detail =
     [
       planType ? `plan ${planType}` : undefined,
-      resetAfter !== undefined ? `resets in ${Math.ceil(resetAfter / 60)}m` : undefined,
       weeklyUsed !== undefined ? `weekly ${weeklyUsed.toFixed(0)}% used` : undefined,
     ]
       .filter(Boolean)
       .join(" | ") || undefined
 
   return {
-    items: [{ id: "codex", label: "Codex", usagePercentage: usedPct, remainingPercentage: remainPct, detail }],
+    items: [
+      {
+        id: "codex",
+        label: "Codex",
+        usagePercentage: usedPct,
+        remainingPercentage: remainPct,
+        detail,
+        resetAt: resetAfter !== undefined ? Date.now() + resetAfter * 1000 : undefined,
+      },
+    ],
     warnings: [],
   }
 }
 
 // NVIDIA removed the credits system from build.nvidia.com and exposes no usage
 // API, so usage is estimated locally by counting this machine's OpenCode
-// requests to the nvidia provider in opencode.db. One `step-start` part = one
-// API request (matching the old 1 credit = 1 request model).
+// requests to the nvidia provider in opencode.db, per local day.
+// One `step-start` part = one API request.
 async function nvidiaConnector(config: PluginConfig): Promise<ConnectorResult> {
   let auth: Record<string, unknown>
   try {
@@ -688,16 +744,18 @@ async function nvidiaConnector(config: PluginConfig): Promise<ConnectorResult> {
     where m.data like '%"providerID":"nvidia"%'
       and json_extract(m.data, '$.providerID') = 'nvidia'
       and json_extract(p.data, '$.type') = 'step-start'
+      and p.time_created >= ?
   `
 
-  let total: number
+  let today: number
   let lastMinute: number
   try {
     const db = new sqlite.Database(OPENCODE_DB_PATH, { [sqlite.readOnlyOption]: true } as Record<string, unknown>)
     try {
       const prepared = db as unknown as { prepare(sql: string): { get(...params: unknown[]): Record<string, unknown> | undefined } }
-      total = Number(prepared.prepare(countSql).get()?.total) || 0
-      lastMinute = Number(prepared.prepare(`${countSql} and p.time_created >= ?`).get(Date.now() - 60_000)?.total) || 0
+      const startOfToday = new Date().setHours(0, 0, 0, 0)
+      today = Number(prepared.prepare(countSql).get(startOfToday)?.total) || 0
+      lastMinute = Number(prepared.prepare(countSql).get(Date.now() - 60_000)?.total) || 0
     } finally {
       ;(db as unknown as { close(): void }).close()
     }
@@ -705,12 +763,27 @@ async function nvidiaConnector(config: PluginConfig): Promise<ConnectorResult> {
     return { items: [], warnings: [`NVIDIA DB read failed: ${error instanceof Error ? error.message : String(error)}`] }
   }
 
-  const limit = config.nvidiaCreditLimit
-  const usedPct = (total / limit) * 100
-  const detail = `${total}/${limit} est. credits | ${lastMinute}/40 rpm`
+  const limit = config.nvidiaDailyLimit
+  const usedPct = (today / limit) * 100
+  const detail = `RPD ${today}/${limit} | RPM ${lastMinute}/40`
 
   return {
-    items: [{ id: "nvidia", label: "NVIDIA", usagePercentage: clampPercent(usedPct), remainingPercentage: clampPercent(100 - usedPct), detail }],
+    items: [
+      {
+        id: "nvidia",
+        label: "NVIDIA",
+        usagePercentage: clampPercent(usedPct),
+        remainingPercentage: clampPercent(100 - usedPct),
+        detail,
+        rpmUsed: lastMinute,
+        rpmLimit: 40,
+        countLabel: "RPD",
+        usedCount: today,
+        limitCount: limit,
+        // NVIDIA publishes no reset time; this is when the local counter rolls over.
+        resetAt: new Date().setHours(24, 0, 0, 0),
+      },
+    ],
     warnings: [],
   }
 }
@@ -737,6 +810,12 @@ async function loadBuiltinSnapshot(config: PluginConfig): Promise<Snapshot> {
           used: item.usagePercentage,
           remaining: item.remainingPercentage,
           detail: item.detail,
+          rpmUsed: item.rpmUsed,
+          rpmLimit: item.rpmLimit,
+          countLabel: item.countLabel,
+          usedCount: item.usedCount,
+          limitCount: item.limitCount,
+          resetAt: item.resetAt,
         })
       }
       allWarnings.push(...result.warnings)
@@ -793,6 +872,10 @@ async function loadSnapshot(api: TuiPluginApi, config: PluginConfig): Promise<Sn
 function Row(props: { api: TuiPluginApi; item: UsageItem; detailed?: boolean }) {
   const theme = () => props.api.theme.current
   const usedTone = () => itemTone(props.api, props.item.used)
+  const rpmPercent = () =>
+    props.item.rpmLimit && props.item.rpmUsed !== undefined ? (props.item.rpmUsed / props.item.rpmLimit) * 100 : undefined
+  const rpmTone = () => itemTone(props.api, rpmPercent())
+  const resetLabel = () => formatResetAt(props.item.resetAt)
 
   return (
     <box flexDirection="column" gap={props.detailed ? 1 : 0}>
@@ -802,14 +885,30 @@ function Row(props: { api: TuiPluginApi; item: UsageItem; detailed?: boolean }) 
         </text>
         <box flexDirection="row" gap={1} flexShrink={0}>
           <Show when={props.item.kind === "quota"}>
-            <text fg={usedTone()}>{percentBar(props.item.used)}</text>
-            <text fg={usedTone()}>{formatPercent(props.item.used)}</text>
-            <Show when={props.item.remaining !== undefined}>
-              <text fg={theme().textMuted}>{formatPercent(props.item.remaining)} left</text>
+            <Show
+              when={props.item.usedCount !== undefined && props.item.limitCount !== undefined}
+              fallback={
+                <>
+                  <text fg={usedTone()}>{percentBar(props.item.used, props.detailed ? 12 : 8)}</text>
+                  <text fg={usedTone()}>{formatPercent(props.item.used)}</text>
+                </>
+              }
+            >
+              <text fg={theme().textMuted}>{props.item.countLabel ?? "used"}</text>
+              <text fg={usedTone()}>{`${props.item.usedCount}/${props.item.limitCount}`}</text>
+            </Show>
+            <Show when={rpmPercent() !== undefined}>
+              <text fg={theme().textMuted}>RPM</text>
+              <text fg={rpmTone()}>{`${props.item.rpmUsed}/${props.item.rpmLimit}`}</text>
             </Show>
           </Show>
           <Show when={props.item.kind === "cost"}>
             <text fg={theme().accent}>{formatMoney(props.item.cost)}</text>
+          </Show>
+          <Show when={resetLabel()}>
+            <text fg={theme().textMuted} wrapMode="none">
+              {resetLabel()}
+            </text>
           </Show>
         </box>
       </box>
@@ -870,7 +969,6 @@ function SummaryPanel(props: {
             </Show>
 
             <Show when={snapshot()}>
-              <text fg={theme().textMuted}>{snapshot()!.summary}</text>
               <For each={items()}>{(item) => <Row api={props.api} item={item} />}</For>
               <Show when={costs().length > 0 && snapshot()!.totalCost !== undefined}>
                 <text fg={theme().accent}>Pay as you go {formatMoney(snapshot()!.totalCost)}</text>
@@ -935,7 +1033,6 @@ function UsageScreen(props: { api: TuiPluginApi; config: PluginConfig; state: ()
         </box>
 
         <Show when={snapshot()}>
-          <text fg={theme().textMuted}>{snapshot()!.summary}</text>
           <text fg={theme().textMuted}>Source {snapshot()!.source}</text>
           <text fg={theme().textMuted}>Updated {formatUpdatedAt(snapshot()!.updatedAt)}</text>
           <text fg={theme().textMuted}>Command {snapshot()!.command}</text>

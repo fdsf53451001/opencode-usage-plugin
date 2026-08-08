@@ -1,4 +1,4 @@
-import { curlJson, quotaItem, readString } from "./shared.mjs"
+import { curlJson, parseResetAt, quotaItem, readString } from "./shared.mjs"
 
 export const name = "copilot"
 
@@ -38,7 +38,6 @@ export async function run(context) {
     Number.isFinite(Number(payload?.quota_snapshots?.completions?.remaining))
       ? `completions remaining ${Number(payload.quota_snapshots.completions.remaining)}`
       : undefined,
-    readString(payload?.quota_reset_date) ? `resets ${payload.quota_reset_date}` : undefined,
   ]
     .filter(Boolean)
     .join(" | ")
@@ -51,6 +50,7 @@ export async function run(context) {
         used: usagePercentage,
         remaining: remainingPercentage,
         detail,
+        resetAt: parseResetAt(payload?.quota_reset_date),
       }),
     ],
     warnings: [],
