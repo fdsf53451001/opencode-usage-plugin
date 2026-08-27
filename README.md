@@ -12,6 +12,7 @@ Auto-detects available providers. Auto-refreshes every 60 seconds.
 | Kiro | `~/.config/opencode/kiro.db` | Usage / limit per account |
 | Codex (OpenAI) | `~/.local/share/opencode/auth.json` | Weekly usage %, plan type, reset countdown |
 | NVIDIA (build.nvidia.com) | `~/.local/share/opencode/auth.json` + `opencode.db` | Local estimate: requests made today from this machine vs. an assumed daily limit, recent requests/min |
+| Grok (xAI) | `~/.local/share/opencode/auth.json` | Weekly credit usage % (Grok Build), plan (e.g. Grok Pro), period reset |
 
 > **Note on NVIDIA:** NVIDIA offers no usage API, so this row is a *local estimate* — it counts today's requests (local midnight reset) made through OpenCode on this machine against an assumed daily limit of 1,000 (adjustable via `nvidia_daily_limit`).
 
@@ -131,6 +132,7 @@ Pass as the second element of the plugin tuple:
 - Check the latest log in `~/.local/share/opencode/log/` for `service=tui.plugin` errors
 - If the plugin is loaded, you should see the `Usage` panel and the `/usage` command
 - If the NVIDIA row is missing, make sure `auth.json` has an `nvidia` entry (set up via `opencode auth login`)
+- If the Grok row is missing, make sure `auth.json` has an `xai` OAuth entry (set up via `opencode auth login`)
 
 ## Environment variables
 

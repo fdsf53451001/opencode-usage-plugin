@@ -3,7 +3,7 @@
   "name": "@yuting4281/opencode-usage-plugin",
   "version": "0.2.0",
   "type": "module",
-  "description": "OpenCode TUI plugin — shows AI provider usage (GitHub Copilot, Kiro, etc.) with collapsible panels and /usage screen.",
+  "description": "OpenCode TUI plugin — shows AI provider usage (GitHub Copilot, Kiro, Grok, etc.) with collapsible panels and /usage screen.",
   "exports": {
     ".": {
       "import": "./tui.tsx",
@@ -42,6 +42,8 @@
     "usage",
     "copilot",
     "kiro",
+    "grok",
+    "xai",
     "tui"
   ],
   "license": "MIT",

@@ -64,6 +64,7 @@ const knownLabels: Record<string, string> = {
   codex: "Codex",
   github_copilot: "GitHub Copilot",
   github_copilot_add_on: "GitHub Copilot Add-on",
+  grok: "Grok",
   kimi_for_coding: "Kimi for Coding",
   minimax_coding_plan: "MiniMax Coding Plan",
   nano_gpt: "Nano-GPT",
@@ -788,11 +789,125 @@ async function nvidiaConnector(config: PluginConfig): Promise<ConnectorResult> {
   }
 }
 
+function readCents(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value
+  if (!isRecord(value)) return undefined
+  const raw = value.val
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw
+  if (typeof raw === "string" && raw.trim()) {
+    const parsed = Number(raw)
+    return Number.isFinite(parsed) ? parsed : undefined
+  }
+  return undefined
+}
+
+function formatUsdFromCents(cents: number): string {
+  return `$${(Math.abs(cents) / 100).toFixed(2)}`
+}
+
+function formatGrokTier(tier: unknown): string | undefined {
+  const text = readString(tier)
+  if (!text) return undefined
+  return text.replace(/([a-z])([A-Z])/g, "$1 $2")
+}
+
+function formatGrokPeriod(type: unknown): string | undefined {
+  const text = readString(type)
+  if (!text) return undefined
+  if (text.includes("WEEKLY")) return "weekly"
+  if (text.includes("MONTHLY")) return "monthly"
+  if (text.includes("DAILY")) return "daily"
+  if (text.includes("SESSION")) return "session"
+  return undefined
+}
+
+async function grokConnector(config: PluginConfig): Promise<ConnectorResult> {
+  let accessToken = ""
+  try {
+    const auth = (await readJsonFile(AUTH_PATH)) as Record<string, unknown>
+    for (const key of ["xai", "grok"]) {
+      const entry = auth[key] as Record<string, unknown> | undefined
+      const token = typeof entry?.access === "string" ? entry.access.trim() : ""
+      if (token) {
+        accessToken = token
+        break
+      }
+    }
+  } catch {
+    return { items: [], warnings: [] }
+  }
+
+  if (!accessToken) return { items: [], warnings: [] }
+
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+    Accept: "application/json",
+    "User-Agent": "@yuting4281/opencode-usage-plugin/0.2.0",
+  }
+
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), config.timeoutMs)
+  let billing: Record<string, unknown>
+  let user: Record<string, unknown> = {}
+  try {
+    const [billingRes, userRes] = await Promise.all([
+      fetch("https://cli-chat-proxy.grok.com/v1/billing?format=credits", { headers, signal: controller.signal }),
+      fetch("https://cli-chat-proxy.grok.com/v1/user?include=subscription", { headers, signal: controller.signal }),
+    ])
+    if (!billingRes.ok) throw new Error(`Grok billing API ${billingRes.status}`)
+    billing = (await billingRes.json()) as Record<string, unknown>
+    if (userRes.ok) user = (await userRes.json()) as Record<string, unknown>
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`Grok usage API timed out after ${config.timeoutMs}ms`)
+    }
+    throw error
+  } finally {
+    clearTimeout(timeoutId)
+  }
+
+  const payload = isRecord(billing.config) ? (billing.config as Record<string, unknown>) : billing
+  const period = isRecord(payload.currentPeriod) ? payload.currentPeriod : undefined
+  const plan = formatGrokTier(user.subscriptionTier)
+  const periodLabel = formatGrokPeriod(period?.type)
+  const creditPct = readNumber(payload.creditUsagePercent)
+  const onDemandUsed = readCents(payload.onDemandUsed) ?? 0
+  const usedPct =
+    creditPct ??
+    (() => {
+      const used = readCents(payload.used) ?? 0
+      const limit = readCents(payload.monthlyLimit) ?? 0
+      return limit > 0 ? (used / limit) * 100 : 0
+    })()
+  const detail = [
+    plan ? `plan ${plan}` : undefined,
+    periodLabel,
+    onDemandUsed > 0 ? `${formatUsdFromCents(onDemandUsed)} on-demand` : undefined,
+  ]
+    .filter(Boolean)
+    .join(" | ")
+
+  return {
+    items: [
+      {
+        id: "grok",
+        label: "Grok",
+        usagePercentage: clampPercent(usedPct),
+        remainingPercentage: clampPercent(100 - usedPct),
+        detail: detail || undefined,
+        resetAt: parseResetAt(period?.end) ?? parseResetAt(payload.billingPeriodEnd),
+      },
+    ],
+    warnings: [],
+  }
+}
+
 const builtinConnectors: Record<string, (config: PluginConfig) => Promise<ConnectorResult>> = {
   copilot: copilotConnector,
   kiro: kiroConnector,
   codex: codexConnector,
   nvidia: nvidiaConnector,
+  grok: grokConnector,
 }
 
 async function loadBuiltinSnapshot(config: PluginConfig): Promise<Snapshot> {

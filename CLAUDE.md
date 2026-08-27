@@ -33,6 +33,7 @@ Each connector is a `.mjs` file that exports `{ name, run({ auth }) }`. Currentl
 - `kiro.mjs` — reads `~/.config/opencode/kiro.db` (or `$OPENCODE_KIRO_DB_PATH`) using Kiro's current access token without refreshing it
 - `codex.mjs` — reads the OpenAI/Codex OAuth token from `auth.json`, extracts `chatgpt_account_id` from the JWT, queries the ChatGPT usage endpoint
 - `nvidia.mjs` — local estimate only (NVIDIA has no usage API): counts today's `step-start` parts (local-midnight reset; NVIDIA publishes neither a daily quota nor a reset time) for `providerID: "nvidia"` in `~/.local/share/opencode/opencode.db` (or `$OPENCODE_DB_PATH`) against a daily limit (default 1000, `$OPENCODE_NVIDIA_DAILY_LIMIT` / `nvidia_daily_limit` option)
+- `grok.mjs` — reads the xAI OAuth token from `auth.json` (`xai` / `grok`), queries Grok CLI billing (`cli-chat-proxy.grok.com/v1/billing?format=credits`) and subscription (`/v1/user?include=subscription`)
 - `shared.mjs` — utilities: `readJson`, `curlJson`, `quotaItem`, `buildSummary`, `defaultPaths`
 
 To add a new provider, implement it **twice**:
