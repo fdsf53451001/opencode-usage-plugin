@@ -1056,7 +1056,7 @@ function SummaryPanel(props: {
         paddingTop={props.variant === "home" ? 1 : 0}
         flexShrink={0}
         flexDirection="column"
-        gap={1}
+        gap={props.variant === "sidebar" ? 0 : 1}
       >
         <box flexDirection="row" justifyContent="space-between" gap={1}>
           <box flexDirection="row" gap={1} onMouseDown={() => setOpen((value) => !value)}>
@@ -1078,7 +1078,7 @@ function SummaryPanel(props: {
         </box>
 
         <Show when={open()}>
-          <box flexDirection="column" gap={1}>
+          <box flexDirection="column" gap={props.variant === "sidebar" ? 0 : 1}>
             <Show when={props.state().loading && !snapshot()}>
               <text fg={theme().textMuted}>Loading usage data...</text>
             </Show>
